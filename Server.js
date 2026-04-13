@@ -14,6 +14,8 @@ app.use(express.json());
 // --- YE LINE ABHI ADD KAREIN ---
 app.use('/api/auth', require('./Models/routes/authRoutes'));
 
+app.use('/api/reviews', require('./Models/routes/reviewRoutes'));
+
 app.get('/', (req, res) => {
     res.send("Sialkot Trade Trust Hub Server is Running...");
 });
