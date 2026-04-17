@@ -63,19 +63,11 @@ io.on("connection", (socket) => {
     console.log("User Disconnected");
   });
 });
-
-// 🟢 SERVER START
+// SERVER START
 const PORT = process.env.PORT || 5000;
-<<<<<<< HEAD
-app.listen(PORT, () => console.log(`Server started on port ${PORT}`));
+server.listen(PORT, () => console.log(`Server started on port ${PORT}`));
 
-const messageRoutes = require('./Models/routes/messageroutes'); 
 const disputeRoutes = require('./Models/routes/disputeRoutes');
 
 app.use('/api/message', messageRoutes);
 app.use('/api/dispute', disputeRoutes);
-=======
-server.listen(PORT, () => {
-  console.log(`Server started on port ${PORT}`);
-});
->>>>>>> 6205038f0bf9f1979befe502aa1889c5d00bcf9d
