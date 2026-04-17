@@ -1,5 +1,5 @@
 const Escrow = require("../Escrow");
-const User = require("../Users"); // ✅ FIXED (IMPORTANT)
+const User = require("../Users"); // ✅ correct import
 
 // Create Escrow
 const createEscrow = async (req, res) => {
@@ -17,7 +17,8 @@ const createEscrow = async (req, res) => {
       advanceAmount: advance,
       remainingAmount: remaining,
       advanceReleased: false,
-      remainingReleased: false
+      remainingReleased: false,
+      status: "pending"
     });
 
     await escrow.save();
@@ -47,7 +48,10 @@ const jazzcashCallback = async (req, res) => {
     escrow.status = "paid";
     await escrow.save();
 
-    res.json({ message: "Payment received", escrow });
+    res.json({
+      message: "Payment received",
+      escrow
+    });
 
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -74,11 +78,18 @@ const releaseAdvance = async (req, res) => {
       return res.status(404).json({ message: "Manufacturer not found" });
     }
 
+    // safe wallet check
+    if (!manufacturer.wallet) {
+      manufacturer.wallet = { balance: 0 };
+    }
+
     manufacturer.wallet.balance += escrow.advanceAmount;
     await manufacturer.save();
 
     escrow.advanceReleased = true;
-    escrow.status = "partially_released";
+
+    // ❌ FIXED (no more partially_released)
+    escrow.status = "paid";
 
     await escrow.save();
 
@@ -112,10 +123,16 @@ const releaseRemaining = async (req, res) => {
       return res.status(404).json({ message: "Manufacturer not found" });
     }
 
+    if (!manufacturer.wallet) {
+      manufacturer.wallet = { balance: 0 };
+    }
+
     manufacturer.wallet.balance += escrow.remainingAmount;
     await manufacturer.save();
 
     escrow.remainingReleased = true;
+
+    // final completion status
     escrow.status = "released";
 
     await escrow.save();
@@ -154,7 +171,7 @@ const raiseDispute = async (req, res) => {
 };
 
 
-// Dummy
+// Dummy Payment
 const jazzcashPayment = async (req, res) => {
   try {
     res.json({ message: "JazzCash payment initiated" });
