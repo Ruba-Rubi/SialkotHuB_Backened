@@ -11,6 +11,7 @@ const UserSchema = new mongoose.Schema({
     trustScore: { type: Number, default: 0 },
     totalReviews: { type: Number, default: 0 },
 
+
     // Labor specific
     skills: [{ type: String }],
     hourlyRate: { type: Number },
@@ -34,6 +35,15 @@ const UserSchema = new mongoose.Schema({
         balance: { type: Number, default: 0 },
         currency: { type: String, default: "PKR" }
     },
+    escrowBalance: {
+    type: Number,
+    default: 0
+},
+
+pendingWithdrawals: {
+    type: Number,
+    default: 0
+},
 
     createdAt: { type: Date, default: Date.now }
 });
