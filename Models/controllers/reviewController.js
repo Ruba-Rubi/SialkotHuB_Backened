@@ -1,48 +1,68 @@
-const Review = require('../Reviews'); // Ek step peeche (Models folder mein)
-const User = require('../Users');
-const Sentiment = require('sentiment');
-const sentiment = new Sentiment();
+const Review = require('../models/Reviews'); 
+const User = require('../models/Users');
 
 exports.addReview = async (req, res) => {
     try {
         const { revieweeId, rating, comment } = req.body;
+        const token = "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";
+        const url = "https://router.huggingface.co/hf-inference/models/facebook/bart-large-mnli";
 
-        // 1. Run Sentimental Analysis on Comment
-        const analysis = sentiment.analyze(comment);
-        const score = analysis.score; // e.g., "Good" is +3, "Bad" is -3
+        // 1. AI Analysis Call
+        const response = await fetch(url, {
+            headers: {
+                "Authorization": `Bearer ${token}`,
+                "Content-Type": "application/json",
+            },
+            method: "POST",
+            body: JSON.stringify({
+                "inputs": comment,
+                "parameters": { "candidate_labels": ["positive", "negative"] }
+            }),
+        });
+
+        const aiResult = await response.json();
         
-        let label = 'Neutral';
-        if (score > 0) label = 'Positive';
-        else if (score < 0) label = 'Negative';
+        // AI result se top label nikalna
+        // Bart model array return karta hai: [{label: 'positive', score: 0.9}, ...]
+        const topResult = aiResult[0]; 
+        const sentimentLabel = topResult.label; // 'positive' ya 'negative'
 
-        // 2. Save Review with AI Results
+        // 2. Save Review to Database
         const newReview = new Review({
             reviewer: req.user.id,
             reviewee: revieweeId,
             rating,
             comment,
-            sentimentScore: score,
-            sentimentLabel: label
+            sentimentLabel: sentimentLabel,
+            aiScore: topResult.score
         });
         await newReview.save();
 
-        // 3. Update User's Trust Score (The AI Formula)
-        // Formula: (Rating influence 70%) + (Sentiment influence 30%)
+        // 3. Trust Score Logic
         const user = await User.findById(revieweeId);
-        
-        // Purana score + Naya weighted score ka average
-        const ratingWeight = (rating / 5) * 100; // Convert 5 stars to 100 scale
-        const sentimentWeight = (score >= 0) ? 100 : 50; // Simple logic for demo
+        if (user) {
+            // Agar AI positive kahe aur rating 4+ ho toh +2 points
+            if (sentimentLabel === "positive" && rating >= 4) {
+                user.trustScore += 2;
+            } 
+            // Agar AI negative kahe ya rating boht kam ho toh -2 points
+            else if (sentimentLabel === "negative" || rating <= 2) {
+                user.trustScore -= 2;
+            }
+            
+            // Score ko 0-100 ki range mein rakhna
+            user.trustScore = Math.max(0, Math.min(100, user.trustScore));
+            await user.save();
+        }
 
-        const finalUpdate = (ratingWeight * 0.7) + (sentimentWeight * 0.3);
-        
-        // User ka Trust Score update karein
-        user.trustScore = (user.trustScore + finalUpdate) / 2; 
-        await user.save();
-
-        res.status(201).json({ message: "Review added and Trust Score updated!", analysis: label });
+        res.status(201).json({ 
+            message: "Review added and Trust Score updated!",
+            sentiment: sentimentLabel,
+            newTrustScore: user.trustScore 
+        });
 
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error("Review Error:", err);
+        res.status(500).json({ error: "AI Analysis failed but review saved." });
     }
 };
