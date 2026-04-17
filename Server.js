@@ -1,35 +1,55 @@
-require("dotenv").config();
-const express = require("express");
-const cors = require("cors");
-
-const connectDB = require("./Models/db");
-
-// Routes
-const authRoutes = require("./Models/routes/authRoutes");
-const escrowRoutes = require("./Models/routes/escrowroutes");
-const withdrawRoutes = require("./Models/routes/withdrawRoutes");
+require('dotenv').config();
+const express = require('express'); 
+const connectDB = require('./Models/db'); 
+const cors = require('cors');
+const http = require('http'); 
+const { Server } = require('socket.io');
 
 const app = express();
+const server = http.createServer(app);
 
-// DB connection
+// 1. SOCKET.IO CONFIGURATION (Port 3000 ke liye update kiya)
+const io = new Server(server, {
+    cors: {
+        origin: "http://localhost:3000", 
+        methods: ["GET", "POST"]
+    }
+});
+
 connectDB();
 
-// Middleware
-app.use(cors());
+// 2. CORS MIDDLEWARE (Isey Routes se pehle hona chahiye)
+app.use(cors({
+    origin: "http://localhost:3000",
+    credentials: true
+}));
+
 app.use(express.json());
 
-// Routes
-app.use("/api/auth", authRoutes);
-app.use("/api/escrow", escrowRoutes);
-app.use("/api/withdraw", withdrawRoutes);
+// 3. ROUTES
+app.use('/api/auth', require('./Models/routes/authRoutes'));
+app.use('/api/messages', require('./Models/routes/messageRoutes'));
+app.use('/api/reviews', require('./Models/routes/reviewRoutes'));
 
 // Test route
 app.get("/", (req, res) => {
   res.send("Sialkot Trade Trust Hub Server is Running...");
 });
 
-// Start server
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`Server started on port ${PORT}`);
+// --- SOCKET.IO LOGIC ---
+io.on('connection', (socket) => {
+    console.log(`User Connected: ${socket.id}`);
+    socket.on('join_chat', (orderId) => {
+        socket.join(orderId);
+    });
+    socket.on('send_message', (data) => {
+        socket.to(data.orderId).emit('receive_message', data);
+    });
+    socket.on('disconnect', () => {
+        console.log('User Disconnected');
+    });
 });
+
+// 4. SERVER START (Hamesha aakhir mein)
+const PORT = process.env.PORT || 5000;
+server.listen(PORT, () => console.log(`Server started on port ${PORT}`));
