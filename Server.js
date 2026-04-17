@@ -22,3 +22,9 @@ app.get('/', (req, res) => {
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server started on port ${PORT}`));
+
+const messageRoutes = require('./Models/routes/messageroutes'); 
+const disputeRoutes = require('./Models/routes/disputeRoutes');
+
+app.use('/api/message', messageRoutes);
+app.use('/api/dispute', disputeRoutes);
