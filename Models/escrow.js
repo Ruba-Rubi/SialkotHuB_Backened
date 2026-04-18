@@ -1,10 +1,7 @@
 const mongoose = require("mongoose");
 
 const escrowSchema = new mongoose.Schema({
-  orderId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "Orders"
-  },
+orderId: { type: String, required: true }, 
   clientId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Users"
@@ -26,4 +23,4 @@ const escrowSchema = new mongoose.Schema({
   }
 }, { timestamps: true });
 
-module.exports = mongoose.model("Escrow", escrowSchema);
+module.exports = mongoose.models.Escrow || mongoose.model("Escrow", escrowSchema);

@@ -1,4 +1,5 @@
 const Dispute = require('../dispute');
+const Escrow = require('../escrow');
 const Message = require('../messages');
 
 exports.createDispute = async (req, res) => {
@@ -38,4 +39,13 @@ exports.resolveDispute = async (req, res) => {
   await escrow.save();
 
   res.json({ message: "Resolved" });
+};
+// --- YAHAN YE NAYA FUNCTION ADD KAREIN ---
+exports.getAllDisputes = async (req, res) => {
+    try {
+        const disputes = await Dispute.find(); // MongoDB se saray disputes layega
+        res.status(200).json(disputes);
+    } catch (error) {
+        res.status(500).json({ message: "Saray disputes nahi mil sakay", error: error.message });
+    }
 };
