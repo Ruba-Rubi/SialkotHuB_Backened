@@ -1,15 +1,14 @@
 const mongoose = require('mongoose');
 
-const MessageSchema = new mongoose.Schema({
-    sender: { type: String, required: true },
-    receiver: { type: String, required: true },
-    orderId: { type: String, required: true },
-    message: { type: String, required: true }, // <--- Yahan comma hona chahiye tha
-    
-    // AI Guardian Field
-    isFlagged: { type: Boolean, default: false }, // <--- Yahan bhi comma laga diya hai
-    
-    createdAt: { type: Date, default: Date.now }
+// Schema design for Skillora Messages
+const messageSchema = new mongoose.Schema({
+  senderId: { type: String, required: true },
+  receiverId: { type: String, required: true },
+  message: { type: String, required: true },
+  sentiment: { type: String, default: 'positive' },
+  flagged: { type: Boolean, default: false },
+  createdAt: { type: Date, default: Date.now }
 });
 
-module.exports = mongoose.model('Message', MessageSchema);
+// Bilkul safe export bina kisi schema error ke
+module.exports = mongoose.models.Message || mongoose.model('Message', messageSchema);
