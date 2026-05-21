@@ -1,54 +1,196 @@
 const User = require('../Users');
-const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const axios = require('axios');
 
-// 1. REGISTER USER (Naye Token Format ke sath)
+const CNIC_SERVICE_URL = process.env.CNIC_SERVICE_URL || 'http://localhost:8000';
+
+// 1. REGISTER USER
 exports.registerUser = async (req, res) => {
-    const { name, email, password, role, companyName, skills } = req.body;
+    const {
+        name,
+        email,
+        password,
+        role,
+        city,
+        cnic,
+        dob,
+        expiry,
+        selfie,
+
+        // Support both frontend naming styles
+        cnicFront,
+        cnicBack,
+        cnic_front,
+        cnic_back
+    } = req.body;
+
+    console.log("Registering and Verifying:", email);
+
     try {
-        let user = await User.findOne({ email });
-        if (user) return res.status(400).json({ msg: 'User already exists' });
+        if (!name || !email || !password || !role) {
+            return res.status(400).json({
+                message: 'Name, email, password, and role are required.'
+            });
+        }
 
-        user = new User({ name, email, password, role, companyName, skills });
+        const normalizedEmail = email.toLowerCase();
 
-        const salt = await bcrypt.genSalt(10);
-        user.password = await bcrypt.hash(password, salt);
+        let user = await User.findOne({ email: normalizedEmail });
+        if (user) {
+            return res.status(400).json({ message: 'User already exists' });
+        }
+
+        const cnicFrontImage = cnicFront || cnic_front;
+        const cnicBackImage = cnicBack || cnic_back;
+        const selfieImage = selfie;
+
+        if (!cnicFrontImage || !cnicBackImage || !selfieImage || !cnic || !dob) {
+            return res.status(400).json({
+                message: 'CNIC front, CNIC back, selfie, CNIC number, and DOB are required.'
+            });
+        }
+
+        let aiScore = 0;
+        let aiDecision = 'PENDING';
+        let aiFullResult = null;
+
+        try {
+            console.log("Sending data to Python AI Backend:", CNIC_SERVICE_URL);
+
+            const aiResponse = await axios.post(`${CNIC_SERVICE_URL}/api/verify`, {
+                cnic_front: cnicFrontImage,
+                cnic_back: cnicBackImage,
+                selfie: selfieImage,
+                user_name: name,
+                user_cnic: cnic,
+                user_dob: dob,
+                user_expiry: expiry || null,
+                user_id: normalizedEmail
+            }, {
+                timeout: 120000,
+                maxBodyLength: Infinity,
+                maxContentLength: Infinity
+            });
+
+            if (!aiResponse.data || !aiResponse.data.success || !aiResponse.data.result) {
+                return res.status(400).json({
+                    message: aiResponse.data?.message || 'AI verification failed.'
+                });
+            }
+
+            const aiResult = aiResponse.data.result;
+            aiFullResult = aiResult;
+            aiScore = aiResult.final_score || 0;
+            aiDecision = aiResult.final_decision || 'PENDING';
+
+            console.log(`AI Result: ${aiDecision} with Score: ${aiScore}`);
+
+            if (aiDecision === 'FAKE') {
+                return res.status(400).json({
+                    message: 'Verification Failed: Your documents appear to be invalid or fake.',
+                    cnicVerification: aiFullResult
+                });
+            }
+        } catch (aiErr) {
+            console.error("AI Backend Error:", aiErr.response?.data || aiErr.message);
+
+            return res.status(500).json({
+                message: 'AI Verification Server error.',
+                details: aiErr.response?.data?.detail || aiErr.response?.data?.message || aiErr.message
+            });
+        }
+
+        user = new User({
+            name,
+            email: normalizedEmail,
+            password,
+            role,
+            cnic,
+            dob,
+            address: { city: city || "" },
+            isVerified: aiDecision !== 'FAKE',
+            trustScore: Math.round(aiScore),
+            verificationStatus: aiDecision,
+            cnicVerification: aiFullResult
+        });
+
         await user.save();
 
-        // Naya Payload structure: Is mein 'user' ka object hai jaisa aapki auth.js maang rahi hai
-        const payload = { user: { id: user.id, role: user.role } };
+        console.log("User registered successfully with Trust Score:", aiScore);
 
-        jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '10h' }, (err, token) => {
+        const payload = {
+            user: {
+                id: user.id,
+                role: user.role
+            }
+        };
+
+        jwt.sign(payload, 'secret123', { expiresIn: '10h' }, (err, token) => {
             if (err) throw err;
-            // Client ko token mil gaya
-            res.json({ token }); 
+
+            res.json({
+                token,
+                user: {
+                    id: user.id,
+                    name: user.name,
+                    role: user.role,
+                    trustScore: user.trustScore,
+                    verificationStatus: user.verificationStatus
+                }
+            });
         });
     } catch (err) {
-        console.error(err.message);
-        res.status(500).send('Server Error');
+        console.error("Registration Error:", err.message);
+        res.status(500).json({ message: 'Server Error' });
     }
 };
 
-// 2. LOGIN USER (Ye lazmi hai taakay aap purane users se token le sakein)
+// 2. LOGIN USER
 exports.loginUser = async (req, res) => {
     const { email, password } = req.body;
+
+    console.log("Login Attempt:", email);
+
     try {
-        // Check karein user hai ya nahi
-        let user = await User.findOne({ email });
-        if (!user) return res.status(400).json({ msg: 'Invalid Credentials' });
+        const normalizedEmail = email.toLowerCase();
 
-        // Password match karein
-        const isMatch = await bcrypt.compare(password, user.password);
-        if (!isMatch) return res.status(400).json({ msg: 'Invalid Credentials' });
+        let user = await User.findOne({ email: normalizedEmail });
 
-        const payload = { user: { id: user.id, role: user.role } };
+        if (!user) {
+            console.log("User not found");
+            return res.status(400).json({ message: 'Invalid Credentials' });
+        }
 
-        jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '10h' }, (err, token) => {
+        if (user.password !== password) {
+            console.log("Password mismatch");
+            return res.status(400).json({ message: 'Invalid Credentials' });
+        }
+
+        console.log("Login Success! Role:", user.role);
+
+        const payload = {
+            user: {
+                id: user.id,
+                role: user.role
+            }
+        };
+
+        jwt.sign(payload, 'secret123', { expiresIn: '10h' }, (err, token) => {
             if (err) throw err;
-            res.json({ token });
+
+            res.json({
+                token,
+                user: {
+                    id: user.id,
+                    name: user.name,
+                    role: user.role,
+                    trustScore: user.trustScore,
+                    verificationStatus: user.verificationStatus
+                }
+            });
         });
     } catch (err) {
-        console.error(err.message);
-        res.status(500).send('Server Error');
+        console.error("Login Error:", err.message);
+        res.status(500).json({ message: 'Server Error' });
     }
 };

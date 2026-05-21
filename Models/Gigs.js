@@ -10,5 +10,5 @@ const GigSchema = new mongoose.Schema({
     isActive: { type: Boolean, default: true },
     createdAt: { type: Date, default: Date.now }
 });
-
+ vcv 
 module.exports = mongoose.model('Gig', GigSchema);

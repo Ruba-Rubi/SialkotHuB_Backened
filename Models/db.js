@@ -1,16 +1,21 @@
 const mongoose = require('mongoose');
 
-// Database connect karne ka function
 const connectDB = async () => {
     try {
-        // process.env.MONGO_URI aapki .env file se connection string uthaye ga
-        const conn = await mongoose.connect(process.env.MONGO_URI);
-        
-        console.log(`MongoDB Connected Successfully: ${conn.connection.host}`);
+        // Is baar hum localhost use karenge
+        await mongoose.connect('mongodb://localhost:27017/SialkotHub', {
+            serverSelectionTimeoutMS: 5000,
+        }); 
+        console.log("✅ Database Connected Successfully!");
     } catch (err) {
-        console.error(`Error: ${err.message}`);
-        // Agar connection fail ho jaye toh process band kar do
-        process.exit(1);
+        // Agar localhost fail ho jaye toh IPv6 try karein (New Node.js version ke liye)
+        try {
+            await mongoose.connect('mongodb://[::1]:27017/SialkotHub');
+            console.log("✅ Database Connected Successfully (via IPv6)!");
+        } catch (secondErr) {
+            console.error("❌ Database Connection Failed!");
+            console.log("Wajah:", secondErr.message);
+        }
     }
 };
 

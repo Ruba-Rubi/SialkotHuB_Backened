@@ -4,7 +4,7 @@ const UserSchema = new mongoose.Schema({
     name: { type: String, required: true },
     email: { type: String, required: true, unique: true },
     password: { type: String, required: true },
-    role: { type: String, enum: ['Manufacturer', 'Labor', 'Client', 'Admin'], required: true },
+    role: { type: String, enum: ['Manufacturer', 'Labour', 'client', 'Admin'], required: true },
     
     // Manufacturer specific
     companyName: { type: String },
@@ -26,11 +26,11 @@ const UserSchema = new mongoose.Schema({
         country: String, 
         details: String 
     },
-    verification: { 
-        isVerified: { type: Boolean, default: false },
-        method: String,
-        status: String
-    },
+    
+    // R_Back/models/Users.js mein dekhein ye fields hain?
+    trustScore: { type: Number, default: 0 },
+    isVerified: { type: Boolean, default: false },
+    verificationStatus: { type: String, default: "PENDING" },
     wallet: { 
         balance: { type: Number, default: 0 },
         currency: { type: String, default: "PKR" }
@@ -43,6 +43,24 @@ const UserSchema = new mongoose.Schema({
 pendingWithdrawals: {
     type: Number,
     default: 0
+},
+cnic: String,
+dob: String,
+isVerified: {
+  type: Boolean,
+  default: false
+},
+trustScore: {
+  type: Number,
+  default: 0
+},
+verificationStatus: {
+  type: String,
+  default: 'PENDING'
+},
+cnicVerification: {
+  type: Object,
+  default: null
 },
 
     createdAt: { type: Date, default: Date.now }
