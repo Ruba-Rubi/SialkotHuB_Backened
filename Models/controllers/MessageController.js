@@ -1,4 +1,4 @@
-const Message = require('../messages');
+const Message = require('../Message');
 const Dispute = require('../dispute');
 
 // 🚀 Python AI Engine (Flask) se baat karne wala function
@@ -17,7 +17,7 @@ async function checkDisputeFromAI(msg) {
     return data.status === "DISPUTE";
   } catch (error) {
     console.error("⚠️ AI Server se connect nahi ho paya:", error.message);
-    
+
     // BACKUP LOGIC: Agar presentation ke waqt Python server band ho, toh code crash na ho balkay purane tareeqay par chal pare
     const badWords = ["fraud", "scam", "bad", "stupid", "dhoka", "fake"];
     return badWords.some(word => msg.toLowerCase().includes(word));

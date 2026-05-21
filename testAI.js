@@ -1,7 +1,11 @@
 async function query(data) {
     // Naya URL jo aapne screenshot mein dekha
     const url = "https://router.huggingface.co/hf-inference/models/facebook/bart-large-mnli";
-    const token = "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";
+    const token = process.env.HUGGINGFACE_API_KEY || process.env.HF_TOKEN;
+
+    if (!token) {
+        throw new Error("Set HUGGINGFACE_API_KEY or HF_TOKEN before running this test.");
+    }
 
     console.log("Testing with NEW Router URL...");
 

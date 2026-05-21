@@ -18,7 +18,7 @@ def predict_dispute():
 
         # AI Logical Verification (If model is not fully loading)
         status = "NORMAL"
-        
+
         # SialkotHub ke disputes detect karne ke liye simple rules
         dispute_keywords = ["dispute", "fraud", "fake", "scam", "dhoka", "refund", "not delivered", "payment issue"]
         if any(word in message.lower() for word in dispute_keywords):

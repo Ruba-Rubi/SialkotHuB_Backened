@@ -1,7 +1,7 @@
 const mongoose = require("mongoose");
 
 const escrowSchema = new mongoose.Schema({
-orderId: { type: String, required: true }, 
+  orderId: { type: String, required: true },
   clientId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Users"

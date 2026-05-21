@@ -1,4 +1,4 @@
-const Escrow = require("../Escrow");
+const Escrow = require("../escrow");
 const User = require("../Users"); // ✅ correct import
 
 // Create Escrow
