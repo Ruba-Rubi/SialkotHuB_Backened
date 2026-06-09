@@ -18,9 +18,12 @@ const escrowSchema = new mongoose.Schema({
   remainingAmount: Number,
   status: {
     type: String,
-    enum: ["pending", "paid", "released", "disputed"],
+    enum: ["pending", "paid", "approved", "released", "disputed"],
     default: "pending"
-  }
+  },
+  advanceReleased: { type: Boolean, default: false },
+  remainingReleased: { type: Boolean, default: false },
+  clientApproved: { type: Boolean, default: false }  // ✅ NEW: Client final approval
 }, { timestamps: true });
 
 module.exports = mongoose.models.Escrow || mongoose.model("Escrow", escrowSchema);

@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# Environment variables (secrets)
+.env
+.env.*
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+
+# ML Model (large files)
+Dispute_final/skillora_bert_model/
+
+# IDE / Tool configs
+.claude/
+.sixth/
+*.bat
+
+# Logs
+*.log
+npm-debug.log*

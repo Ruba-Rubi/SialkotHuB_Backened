@@ -1,44 +1,53 @@
 const Dispute = require('../dispute');
 const Escrow = require('../escrow');
+const axios = require('axios');
+
+const BERT_API = 'http://localhost:5000/predict-dispute';
 
 exports.createDispute = async (req, res) => {
-  const { orderId, reason, raisedBy } = req.body;
+  try {
+    const { orderId, reason, raisedBy } = req.body;
 
-  const dispute = await Dispute.create({
-    orderId,
-    reason,
-    raisedBy
-  });
+    // BERT AI Analysis
+    let aiStatus = 'UNKNOWN', aiConfidence = 'N/A';
+    try {
+      const aiRes = await axios.post(BERT_API, { message: reason });
+      aiStatus = aiRes.data.status;
+      aiConfidence = aiRes.data.confidence;
+    } catch (aiErr) {
+      console.warn('[BERT] AI service not reachable:', aiErr.message);
+    }
 
-  await Escrow.findOneAndUpdate(
-    { orderId },
-    { status: 'hold' }
-  );
+    const dispute = await Dispute.create({ orderId, reason, raisedBy, aiStatus, aiConfidence });
 
-  res.json({ message: 'Dispute created & escrow hold', dispute });
+    await Escrow.findOneAndUpdate({ orderId }, { status: 'disputed' });
+
+    res.json({ message: 'Dispute created & escrow on hold', dispute, aiStatus, aiConfidence });
+  } catch (error) {
+    res.status(500).json({ message: 'Dispute create nahi hua', error: error.message });
+  }
 };
 
 exports.resolveDispute = async (req, res) => {
-  const { id } = req.params;
-  const { decision } = req.body;
+  try {
+    const { id } = req.params;
+    const { decision } = req.body;
 
-  const dispute = await Dispute.findByIdAndUpdate(
-    id,
-    { status: 'resolved' },
-    { new: true }
-  );
+    const dispute = await Dispute.findByIdAndUpdate(id, { status: 'resolved' }, { new: true });
 
-  const escrow = await Escrow.findOne({ orderId: dispute.orderId });
+    if (!dispute) return res.status(404).json({ message: 'Dispute nahi mila' });
 
-  if (decision === 'release') {
-    escrow.status = 'released';
-  } else {
-    escrow.status = 'refunded';
+    const escrow = await Escrow.findOne({ orderId: dispute.orderId });
+
+    if (escrow) {
+      escrow.status = decision === 'release' ? 'released' : 'pending';
+      await escrow.save();
+    }
+
+    res.json({ message: 'Dispute resolved', dispute });
+  } catch (error) {
+    res.status(500).json({ message: 'Resolve nahi hua', error: error.message });
   }
-
-  await escrow.save();
-
-  res.json({ message: 'Resolved' });
 };
 
 exports.getAllDisputes = async (req, res) => {
