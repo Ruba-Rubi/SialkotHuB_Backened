@@ -1,241 +1,282 @@
+const mongoose = require("mongoose");
 const Escrow = require("../escrow");
-const User = require("../Users");
+const User   = require("../Users");
 
-// Create Escrow
+// ─── CREATE ESCROW ────────────────────────────────────────────────────────────
 const createEscrow = async (req, res) => {
   try {
     const { orderId, clientId, manufacturerId, totalAmount } = req.body;
 
-    const advance = totalAmount * 0.3;
-    const remaining = totalAmount * 0.7;
+    const existing = await Escrow.findOne({ orderId });
+    if (existing) {
+      return res.status(400).json({ message: "Escrow already exists for this order" });
+    }
 
-    const escrow = new Escrow({
+    const advance   = Math.round(totalAmount * 0.3);
+    const remaining = Math.round(totalAmount * 0.7);
+
+    const escrow = await Escrow.create({
       orderId,
       clientId,
       manufacturerId,
       totalAmount,
-      advanceAmount: advance,
+      advanceAmount:   advance,
       remainingAmount: remaining,
-      advanceReleased: false,
-      remainingReleased: false,
-      clientApproved: false,
-      status: "pending"
+      status:          "pending",
     });
 
-    await escrow.save();
-
-    res.status(201).json({
-      message: "Escrow created successfully",
-      escrow
-    });
-
+    res.status(201).json({ message: "Escrow created", escrow });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 };
 
-
-// JazzCash Callback
-const jazzcashCallback = async (req, res) => {
+// ─── STRIPE: CREATE CHECKOUT SESSION ─────────────────────────────────────────
+const stripeInitiate = async (req, res) => {
   try {
-    const { orderId } = req.body;
-
-    const escrow = await Escrow.findOne({ orderId });
+    let escrow = await Escrow.findOne({ orderId: req.params.id });
 
     if (!escrow) {
-      return res.status(404).json({ message: "Escrow not found" });
+      const { amount, title } = req.body;
+      if (!amount) return res.status(400).json({ message: "Amount zaroori hai" });
+
+      // Try to get manufacturerId from Order
+      let manufacturerId = null;
+      try {
+        const Order = require("mongoose").model("Order");
+        const order = await Order.findById(req.params.id).select("manufacturerId");
+        if (order) manufacturerId = order.manufacturerId;
+      } catch (_) {}
+
+      escrow = await Escrow.create({
+        orderId:         req.params.id,
+        clientId:        req.user._id || req.user.id,
+        manufacturerId,
+        totalAmount:     amount,
+        advanceAmount:   Math.round(amount * 0.3),
+        remainingAmount: Math.round(amount * 0.7),
+        status:          "pending",
+      });
     }
 
-    escrow.status = "paid";
-    await escrow.save();
+    if (!["pending", "awaiting_payment"].includes(escrow.status)) {
+      return res.status(400).json({ message: `Already processed. Status: ${escrow.status}` });
+    }
 
-    res.json({
-      message: "Payment received",
-      escrow
+    const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+    const session = await stripe.checkout.sessions.create({
+      mode: "payment",
+      payment_method_types: ["card"],
+      line_items: [{
+        price_data: {
+          currency: "pkr",
+          product_data: { name: req.body.title || "Skillora Order Payment" },
+          unit_amount: Math.round(escrow.totalAmount * 100),
+        },
+        quantity: 1,
+      }],
+      success_url: `http://localhost:3000/payment/success?session_id={CHECKOUT_SESSION_ID}&escrowId=${escrow._id}`,
+      cancel_url:  `http://localhost:3000/payment/cancel`,
     });
 
+    escrow.stripeSessionId = session.id;
+    escrow.status = "awaiting_payment";
+    await escrow.save();
+
+    res.json({ checkoutUrl: session.url, escrowId: escrow._id });
   } catch (error) {
+    console.error("Stripe initiate error:", error.message);
     res.status(500).json({ error: error.message });
   }
 };
 
+// ─── STRIPE: VERIFY SESSION ───────────────────────────────────────────────────
+const verifyStripeSession = async (req, res) => {
+  try {
+    const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+    const session = await stripe.checkout.sessions.retrieve(req.params.sessionId);
 
-// 30% Release — Manufacturer kaam shuru kare
+    const escrow = await Escrow.findOne({ stripeSessionId: req.params.sessionId });
+
+    if (escrow && session.payment_status === "paid" && escrow.status === "awaiting_payment") {
+      escrow.status = "paid";
+      await escrow.save();
+    }
+
+    res.json({ status: session.payment_status, escrow: escrow || null });
+  } catch (error) {
+    console.error("Verify session error:", error.message);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ─── STRIPE WEBHOOK ───────────────────────────────────────────────────────────
+const stripeWebhook = async (req, res) => {
+  try {
+    const sig    = req.headers["stripe-signature"];
+    const secret = process.env.STRIPE_WEBHOOK_SECRET;
+    const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+
+    let event;
+    if (secret) {
+      event = stripe.webhooks.constructEvent(req.body, sig, secret);
+    } else {
+      event = req.body;
+    }
+
+    if (event.type === "checkout.session.completed") {
+      const session = event.data.object;
+      const escrow  = await Escrow.findOne({ stripeSessionId: session.id });
+      if (escrow && escrow.status === "awaiting_payment") {
+        escrow.status = "paid";
+        await escrow.save();
+        console.log(`✅ Stripe payment confirmed: ${escrow._id}`);
+      }
+    }
+    res.json({ received: true });
+  } catch (error) {
+    console.error("Stripe webhook error:", error.message);
+    res.status(400).json({ error: error.message });
+  }
+};
+
+// ─── 30% ADVANCE RELEASE ─────────────────────────────────────────────────────
 const releaseAdvance = async (req, res) => {
   try {
     const escrow = await Escrow.findById(req.params.id);
-
-    if (!escrow) {
-      return res.status(404).json({ message: "Escrow not found" });
-    }
-
-    if (escrow.advanceReleased) {
-      return res.status(400).json({ message: "Advance already released" });
-    }
-
-    if (escrow.status !== "paid") {
-      return res.status(400).json({ message: "Payment not confirmed yet" });
-    }
+    if (!escrow)                return res.status(404).json({ message: "Escrow not found" });
+    if (escrow.advanceReleased) return res.status(400).json({ message: "Advance already released" });
+    if (escrow.status !== "paid")
+      return res.status(400).json({ message: `Payment not confirmed yet. Status: ${escrow.status}` });
 
     const manufacturer = await User.findById(escrow.manufacturerId);
+    if (!manufacturer) return res.status(404).json({ message: "Manufacturer not found" });
 
-    if (!manufacturer) {
-      return res.status(404).json({ message: "Manufacturer not found" });
-    }
-
-    if (!manufacturer.wallet) {
-      manufacturer.wallet = { balance: 0 };
-    }
-
+    if (!manufacturer.wallet) manufacturer.wallet = { balance: 0 };
     manufacturer.wallet.balance += escrow.advanceAmount;
     await manufacturer.save();
 
     escrow.advanceReleased = true;
-    escrow.status = "paid";
+    escrow.status          = "advance_released";
     await escrow.save();
 
     res.json({
-      message: "30% advance released successfully",
-      escrow
+      message:             `✅ 30% advance (Rs ${escrow.advanceAmount}) released to manufacturer`,
+      manufacturerBalance: manufacturer.wallet.balance,
+      escrow,
     });
-
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 };
 
-
-// ✅ NEW: Client Final Approval — delivery confirm kare
+// ─── CLIENT APPROVAL ─────────────────────────────────────────────────────────
 const clientApproval = async (req, res) => {
   try {
     const escrow = await Escrow.findById(req.params.id);
+    if (!escrow)                       return res.status(404).json({ message: "Escrow not found" });
+    if (escrow.status === "disputed")  return res.status(400).json({ message: "Dispute is active" });
+    if (escrow.status === "released")  return res.status(400).json({ message: "Order already completed" });
+    if (!escrow.advanceReleased)       return res.status(400).json({ message: "Order not started yet" });
+    if (escrow.clientApproved)         return res.status(400).json({ message: "Already approved" });
 
-    if (!escrow) {
-      return res.status(404).json({ message: "Escrow not found" });
-    }
-
-    if (escrow.status === "disputed") {
-      return res.status(400).json({ message: "Cannot approve a disputed order" });
-    }
-
-    if (escrow.status === "released") {
-      return res.status(400).json({ message: "Order already completed" });
-    }
-
-    if (!escrow.advanceReleased) {
-      return res.status(400).json({ message: "Advance not released yet. Order not started." });
-    }
-
-    // Client ne delivery approve ki
     escrow.clientApproved = true;
-    escrow.status = "approved";
+    escrow.status         = "approved";
     await escrow.save();
 
-    res.json({
-      message: "Client approved delivery. 70% will now be released.",
-      escrow
-    });
-
+    res.json({ message: "✅ Delivery approved by client. Release 70% now.", escrow });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 };
 
-
-// 70% Release — sirf tab jab client approve kare
+// ─── 70% REMAINING RELEASE ───────────────────────────────────────────────────
 const releaseRemaining = async (req, res) => {
   try {
     const escrow = await Escrow.findById(req.params.id);
-
-    if (!escrow) {
-      return res.status(404).json({ message: "Escrow not found" });
-    }
-
-    if (escrow.remainingReleased) {
-      return res.status(400).json({ message: "Already released" });
-    }
-
-    // ✅ Client approval zaroori hai
-    if (!escrow.clientApproved) {
-      return res.status(400).json({ message: "Client approval required before releasing 70%" });
-    }
-
-    if (escrow.status === "disputed") {
-      return res.status(400).json({ message: "Cannot release funds for disputed order" });
-    }
+    if (!escrow)                   return res.status(404).json({ message: "Escrow not found" });
+    if (escrow.remainingReleased)  return res.status(400).json({ message: "70% already released" });
+    if (!escrow.clientApproved)    return res.status(400).json({ message: "Client approval required" });
+    if (escrow.status === "disputed") return res.status(400).json({ message: "Dispute is active" });
+    if (escrow.status !== "approved")
+      return res.status(400).json({ message: `Cannot release. Status: ${escrow.status}` });
 
     const manufacturer = await User.findById(escrow.manufacturerId);
+    if (!manufacturer) return res.status(404).json({ message: "Manufacturer not found" });
 
-    if (!manufacturer) {
-      return res.status(404).json({ message: "Manufacturer not found" });
-    }
-
-    if (!manufacturer.wallet) {
-      manufacturer.wallet = { balance: 0 };
-    }
-
+    if (!manufacturer.wallet) manufacturer.wallet = { balance: 0 };
     manufacturer.wallet.balance += escrow.remainingAmount;
     await manufacturer.save();
 
     escrow.remainingReleased = true;
-    escrow.status = "released";
+    escrow.status            = "released";
     await escrow.save();
 
     res.json({
-      message: "70% released successfully. Order complete!",
-      escrow
+      message:             `✅ Order complete! 70% (Rs ${escrow.remainingAmount}) released to manufacturer.`,
+      manufacturerBalance: manufacturer.wallet.balance,
+      totalPaid:           escrow.totalAmount,
+      escrow,
     });
-
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 };
 
-
-// Dispute
+// ─── RAISE DISPUTE ────────────────────────────────────────────────────────────
 const raiseDispute = async (req, res) => {
   try {
     const escrow = await Escrow.findById(req.params.id);
-
-    if (!escrow) {
-      return res.status(404).json({ message: "Escrow not found" });
-    }
-
-    if (escrow.status === "released") {
-      return res.status(400).json({ message: "Cannot dispute a completed order" });
-    }
+    if (!escrow)                       return res.status(404).json({ message: "Escrow not found" });
+    if (escrow.status === "released")  return res.status(400).json({ message: "Cannot dispute completed order" });
+    if (escrow.status === "disputed")  return res.status(400).json({ message: "Dispute already active" });
+    if (escrow.status === "pending")   return res.status(400).json({ message: "Payment not made yet" });
 
     escrow.status = "disputed";
     await escrow.save();
 
-    res.json({
-      message: "Dispute raised successfully",
-      escrow
-    });
-
+    res.json({ message: "⚠️ Dispute raised. Funds are on hold.", escrow });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 };
 
-
-// Dummy Payment
-const jazzcashPayment = async (req, res) => {
+// ─── TEST ONLY: manually mark escrow as paid ─────────────────────────────────
+const markPaidForTesting = async (req, res) => {
   try {
-    res.json({ message: "JazzCash payment initiated" });
+    const escrow = await Escrow.findById(req.params.id);
+    if (!escrow) return res.status(404).json({ message: "Escrow not found" });
+    escrow.status = "paid";
+    escrow.jazzcashTxnRef = "TEST-" + Date.now();
+    await escrow.save();
+    res.json({ message: "✅ Marked as paid (test mode)", escrow });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 };
 
+// ─── SAFEPAY RETURN ───────────────────────────────────────────────────────────
+const safepayReturn = async (req, res) => {
+  const FRONTEND = process.env.FRONTEND_URL || "http://localhost:3000";
+  res.redirect(`${FRONTEND}/payment/cancel`);
+};
 
-// EXPORTS
+// ─── GET ESCROW BY ORDER ID ───────────────────────────────────────────────────
+const getEscrowByOrder = async (req, res) => {
+  try {
+    const id = req.params.orderId;
+    let escrow = await Escrow.findOne({ orderId: id });
+    if (!escrow) escrow = await Escrow.findById(id).catch(() => null);
+    if (!escrow) return res.status(404).json({ message: "Escrow not found" });
+    res.json(escrow);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ─── EXPORTS ──────────────────────────────────────────────────────────────────
 module.exports = {
-  createEscrow,
-  releaseAdvance,
-  clientApproval,
-  releaseRemaining,
-  raiseDispute,
-  jazzcashPayment,
-  jazzcashCallback
+  createEscrow, stripeInitiate, verifyStripeSession, stripeWebhook, safepayReturn,
+  releaseAdvance, clientApproval, releaseRemaining,
+  raiseDispute, getEscrowByOrder, markPaidForTesting,
 };

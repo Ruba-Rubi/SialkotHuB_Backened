@@ -1,79 +1,73 @@
 const Message = require('../Message');
-const Dispute = require('../dispute');
+const Order   = require('../Orders');
+const { processMessage } = require('../services/MessageService');
 
-// 🚀 Python AI Engine (Flask) se baat karne wala function
-async function checkDisputeFromAI(msg) {
-  try {
-    const response = await fetch('http://127.0.0.1:5000/predict-dispute', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ message: msg })
-    });
-
-    const data = await response.json();
-    // Agar Python server "DISPUTE" return karega toh ye true ho jayega
-    return data.status === "DISPUTE";
-  } catch (error) {
-    console.error("⚠️ AI Server se connect nahi ho paya:", error.message);
-
-    // BACKUP LOGIC: Agar presentation ke waqt Python server band ho, toh code crash na ho balkay purane tareeqay par chal pare
-    const badWords = ["fraud", "scam", "bad", "stupid", "dhoka", "fake"];
-    return badWords.some(word => msg.toLowerCase().includes(word));
-  }
-}
-
+// POST /api/messages
 exports.sendMessage = async (req, res) => {
   try {
-    const { senderId, receiverId, message, orderId } = req.body;
+    const { receiver, orderId, message } = req.body;
+    const sender = req.user.id;
 
-    // 🔥 Ab check hardcoded bad words se nahi, seedha Python AI Server se hoga!
-    const flagged = await checkDisputeFromAI(message);
+    // Verify sender belongs to this order (2-sided only)
+    const order = await Order.findById(orderId);
+    if (!order) return res.status(404).json({ error: 'Order not found' });
 
-    // 1. Message MongoDB database mein save karein
-    await Message.create({
-      senderId,
-      receiverId,
-      message,
-      sentiment: flagged ? "negative" : "positive",
-      flagged
-    });
+    const members = [
+      String(order.clientId),
+      order.manufacturerId ? String(order.manufacturerId) : null,
+      order.labourId       ? String(order.labourId)       : null,
+    ].filter(Boolean);
 
-    // 2. Agar AI ne dispute/abuse detect kiya hai:
-    if (flagged) {
-      let dispute = await Dispute.findOne({ orderId });
-
-      if (!dispute) {
-        dispute = await Dispute.create({
-          orderId,
-          reason: "AI detected abuse/dispute",
-          warningCount: 1
-        });
-      } else {
-        dispute.warningCount += 1;
-
-        // 🚨 Admin notify logic (Agar 3 ya us se zyada warnings hon)
-        if (dispute.warningCount >= 3) {
-          dispute.adminNotified = true;
-        }
-
-        await dispute.save();
-      }
-
-      return res.json({
-        message: "Warning detected by Skillora AI Engine",
-        warnings: dispute.warningCount,
-        adminAlert: dispute.adminNotified,
-        status: "DISPUTE"
-      });
+    if (!members.includes(sender)) {
+      return res.status(403).json({ error: 'Not authorized for this order chat' });
     }
 
-    // 3. Agar sab normal hai:
-    res.json({ message: "Message sent", status: "NORMAL" });
+    const result = await processMessage({ sender, receiver, orderId, message });
 
-  } catch (error) {
-    console.error("Controller Error:", error);
-    res.status(500).json({ error: "Server mein koi masla aaya hai." });
+    return res.status(201).json({
+      message: result.savedMessage,
+      aiStatus: result.aiStatus,
+      aiConfidence: result.aiConfidence,
+      ...(result.dispute && {
+        aiWarning: 'Dispute detected by Skillora AI',
+        warnings: result.dispute.warningCount,
+        adminAlert: result.dispute.adminNotified,
+      }),
+    });
+  } catch (err) {
+    const status = err.statusCode || 500;
+    return res.status(status).json({
+      error: err.message,
+      ...(err.isWarning && { warningCount: err.warningCount }),
+      ...(err.locked   && { locked: true }),
+    });
+  }
+};
+
+// GET /api/messages/:orderId
+exports.getMessages = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { orderId } = req.params;
+
+    // Verify user belongs to this order
+    const order = await Order.findById(orderId);
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+
+    const members = [
+      String(order.clientId),
+      order.manufacturerId ? String(order.manufacturerId) : null,
+      order.labourId       ? String(order.labourId)       : null,
+    ].filter(Boolean);
+
+    if (!members.includes(userId)) {
+      return res.status(403).json({ error: 'Not authorized for this order chat' });
+    }
+
+    const messages = await Message.find({ orderId }).sort({ createdAt: 1 });
+
+    return res.json(messages);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
   }
 };

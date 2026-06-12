@@ -1,69 +1,40 @@
 const mongoose = require('mongoose');
 
 const UserSchema = new mongoose.Schema({
-    name: { type: String, required: true },
-    email: { type: String, required: true, unique: true },
-    password: { type: String, required: true },
-    role: { type: String, enum: ['Manufacturer', 'Labour', 'client', 'Admin'], required: true },
-    
-    // Manufacturer specific
-    companyName: { type: String },
-    trustScore: { type: Number, default: 0 },
-    totalReviews: { type: Number, default: 0 },
+  name:     { type: String, required: true, trim: true },
+  email:    { type: String, required: true, unique: true, lowercase: true },
+  password: { type: String, required: true },
+  role:     { type: String, enum: ['client', 'labour', 'manufacturer'], required: true },
 
+  cnic:  { type: String },
+  dob:   { type: String },
+  phone: { type: String },
 
-    // Labor specific
-    skills: [{ type: String }],
-    hourlyRate: { type: Number },
-    availability: { type: String },
+  address: {
+    city:    { type: String, default: '' },
+    full:    { type: String, default: '' },
+  },
 
-    // Admin specific
-    permissions: [{ type: String }],
+  // Type-specific
+  companyName:    { type: String },  // client
+  businessName:   { type: String },  // manufacturer
+  factoryAddress: { type: String },  // manufacturer
+  skills:         [{ type: String }], // labour
+  experience:     { type: String },  // labour
 
-    // Common Objects
-    address: { 
-        city: String, 
-        country: String, 
-        details: String 
-    },
-    
-    // R_Back/models/Users.js mein dekhein ye fields hain?
-    trustScore: { type: Number, default: 0 },
-    isVerified: { type: Boolean, default: false },
-    verificationStatus: { type: String, default: "PENDING" },
-    wallet: { 
-        balance: { type: Number, default: 0 },
-        currency: { type: String, default: "PKR" }
-    },
-    escrowBalance: {
-    type: Number,
-    default: 0
-},
+  // Verification
+  isVerified:         { type: Boolean, default: false },
+  verificationStatus: { type: String, enum: ['PENDING', 'VERIFIED', 'FAKE', 'MANUAL'], default: 'PENDING' },
+  trustScore:         { type: Number, default: 0 },
+  cnicVerification:   { type: mongoose.Schema.Types.Mixed },
 
-pendingWithdrawals: {
-    type: Number,
-    default: 0
-},
-cnic: String,
-dob: String,
-isVerified: {
-  type: Boolean,
-  default: false
-},
-trustScore: {
-  type: Number,
-  default: 0
-},
-verificationStatus: {
-  type: String,
-  default: 'PENDING'
-},
-cnicVerification: {
-  type: Object,
-  default: null
-},
+  // Policies acceptance
+  policiesAccepted:   { type: Boolean, default: false },
 
-    createdAt: { type: Date, default: Date.now }
-});
+  // Chat moderation
+  warningCount:  { type: Number, default: 0 },
+  isChatLocked:  { type: Boolean, default: false },
 
-module.exports = mongoose.model('User', UserSchema);
+}, { timestamps: true });
+
+module.exports = mongoose.models.User || mongoose.model('User', UserSchema);

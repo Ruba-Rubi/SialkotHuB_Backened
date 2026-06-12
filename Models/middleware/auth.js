@@ -1,21 +1,19 @@
 const jwt = require('jsonwebtoken');
 
-module.exports = function(req, res, next) {
-    // 1. Header se token nikalna (Standard Bearer Format)
-    const authHeader = req.header('Authorization');
-    
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return res.status(401).json({ msg: 'No token, authorization denied' });
-    }
+module.exports = function (req, res, next) {
+  const authHeader = req.header('Authorization');
 
-    const token = authHeader.split(' ')[1]; // 'Bearer <token>' mein se sirf token nikalna
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ msg: 'No token, authorization denied' });
+  }
 
-    try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        // Important: Check karein aapka token 'user' bhej raha hai ya direct 'id'
-        req.user = decoded.user || decoded; 
-        next();
-    } catch (err) {
-        res.status(401).json({ msg: 'Token is not valid' });
-    }
+  const token = authHeader.split(' ')[1];
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret123');
+    req.user = decoded.user || decoded;
+    next();
+  } catch (err) {
+    res.status(401).json({ msg: 'Token is not valid' });
+  }
 };

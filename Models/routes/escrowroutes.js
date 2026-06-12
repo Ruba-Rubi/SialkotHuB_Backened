@@ -1,21 +1,27 @@
 const express = require("express");
-const router = express.Router();
-
+const router  = express.Router();
+const auth    = require("../middleware/auth");
 const {
-  createEscrow,
-  releaseAdvance,
-  clientApproval,
-  releaseRemaining,
-  raiseDispute,
-  jazzcashPayment,
-  jazzcashCallback
+  createEscrow, stripeInitiate, verifyStripeSession, stripeWebhook, safepayReturn,
+  releaseAdvance, clientApproval, releaseRemaining,
+  raiseDispute, getEscrowByOrder, markPaidForTesting,
 } = require("../controllers/Escrowcontroller");
 
-router.post("/create", createEscrow);
-router.post("/jazzcash/callback", jazzcashCallback);
-router.put("/release/advance/:id", releaseAdvance);
-router.put("/approve/:id", clientApproval);        // ✅ NEW: Client final approval
-router.put("/release/remaining/:id", releaseRemaining);
-router.put("/dispute/:id", raiseDispute);
+// Stripe webhook — raw body required for signature verification
+router.post("/stripe/webhook", express.raw({ type: "application/json" }), stripeWebhook);
+
+// Safepay redirect after payment
+router.get("/safepay/return", safepayReturn);
+
+// Protected
+router.post("/create",               auth, createEscrow);
+router.post("/stripe/initiate/:id",  auth, stripeInitiate);
+router.get("/verify/:sessionId",     auth, verifyStripeSession);
+router.post("/test-mark-paid/:id",   auth, markPaidForTesting);
+router.get("/order/:orderId",        auth, getEscrowByOrder);
+router.put("/release/advance/:id",   auth, releaseAdvance);
+router.put("/client-approval/:id",   auth, clientApproval);
+router.put("/release/remaining/:id", auth, releaseRemaining);
+router.put("/dispute/:id",           auth, raiseDispute);
 
 module.exports = router;

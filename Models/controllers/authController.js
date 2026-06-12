@@ -16,6 +16,7 @@ exports.registerUser = async (req, res) => {
         dob,
         expiry,
         selfie,
+        policiesAccepted,
 
         // Support both frontend naming styles
         cnicFront,
@@ -31,6 +32,10 @@ exports.registerUser = async (req, res) => {
             return res.status(400).json({
                 message: 'Name, email, password, and role are required.'
             });
+        }
+
+        if (!policiesAccepted) {
+            return res.status(400).json({ message: 'You must accept the platform policies to register.' });
         }
 
         const normalizedEmail = email.toLowerCase();
@@ -111,7 +116,8 @@ exports.registerUser = async (req, res) => {
             isVerified: aiDecision !== 'FAKE',
             trustScore: Math.round(aiScore),
             verificationStatus: aiDecision,
-            cnicVerification: aiFullResult
+            cnicVerification: aiFullResult,
+            policiesAccepted: true
         });
 
         await user.save();
@@ -125,19 +131,24 @@ exports.registerUser = async (req, res) => {
             }
         };
 
-        jwt.sign(payload, 'secret123', { expiresIn: '10h' }, (err, token) => {
+        jwt.sign(payload, process.env.JWT_SECRET || 'secret123', { expiresIn: '10h' }, (err, token) => {
             if (err) throw err;
 
-            res.json({
-                token,
-                user: {
-                    id: user.id,
-                    name: user.name,
-                    role: user.role,
-                    trustScore: user.trustScore,
-                    verificationStatus: user.verificationStatus
-                }
-            });
+            const newUser = {
+                id: user.id,
+                name: user.name,
+                role: user.role,
+                trustScore: user.trustScore,
+                verificationStatus: user.verificationStatus,
+                city: user.address?.city || '',
+                skills: user.skills || [],
+                companyName: user.companyName || '',
+            };
+
+            const io = req.app.get('io');
+            if (io) io.emit('new_user_registered', newUser);
+
+            res.json({ token, user: newUser });
         });
     } catch (err) {
         console.error("Registration Error:", err.message);
@@ -150,6 +161,10 @@ exports.loginUser = async (req, res) => {
     const { email, password } = req.body;
 
     console.log("Login Attempt:", email);
+
+    if (!email || !password) {
+        return res.status(400).json({ message: 'Email and password are required.' });
+    }
 
     try {
         const normalizedEmail = email.toLowerCase();
@@ -175,7 +190,7 @@ exports.loginUser = async (req, res) => {
             }
         };
 
-        jwt.sign(payload, 'secret123', { expiresIn: '10h' }, (err, token) => {
+        jwt.sign(payload, process.env.JWT_SECRET || 'secret123', { expiresIn: '10h' }, (err, token) => {
             if (err) throw err;
 
             res.json({
@@ -191,6 +206,18 @@ exports.loginUser = async (req, res) => {
         });
     } catch (err) {
         console.error("Login Error:", err.message);
+        res.status(500).json({ message: 'Server Error' });
+    }
+};
+
+// 3. GET USERS (role filter optional)
+exports.getUsers = async (req, res) => {
+    try {
+        const { role } = req.query;
+        const query = role ? { role } : {};
+        const users = await User.find(query, 'name role trustScore isVerified address skills companyName createdAt');
+        res.json(users);
+    } catch (err) {
         res.status(500).json({ message: 'Server Error' });
     }
 };
