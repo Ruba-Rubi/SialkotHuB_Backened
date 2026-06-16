@@ -8,7 +8,6 @@ exports.sendMessage = async (req, res) => {
     const { receiver, orderId, message } = req.body;
     const sender = req.user.id;
 
-    // Verify sender belongs to this order (2-sided only)
     const order = await Order.findById(orderId);
     if (!order) return res.status(404).json({ error: 'Order not found' });
 
@@ -39,7 +38,7 @@ exports.sendMessage = async (req, res) => {
     return res.status(status).json({
       error: err.message,
       ...(err.isWarning && { warningCount: err.warningCount }),
-      ...(err.locked   && { locked: true }),
+      ...(err.locked    && { locked: true }),
     });
   }
 };
@@ -50,7 +49,6 @@ exports.getMessages = async (req, res) => {
     const userId = req.user.id;
     const { orderId } = req.params;
 
-    // Verify user belongs to this order
     const order = await Order.findById(orderId);
     if (!order) return res.status(404).json({ error: 'Order not found' });
 
@@ -65,9 +63,52 @@ exports.getMessages = async (req, res) => {
     }
 
     const messages = await Message.find({ orderId }).sort({ createdAt: 1 });
-
     return res.json(messages);
   } catch (err) {
     return res.status(500).json({ error: err.message });
+  }
+};
+
+// ✅ GET /api/messages/inbox — sab conversations
+exports.getInbox = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const messages = await Message.find({
+      $or: [{ sender: userId }, { receiver: userId }]
+    })
+    .populate('sender',   'name role')
+    .populate('receiver', 'name role')
+    .sort({ createdAt: -1 });
+
+    // Har orderId + user pair ka sirf latest message
+    const seen = new Set();
+    const inbox = [];
+
+    for (const msg of messages) {
+      const senderId   = String(msg.sender?._id  || msg.sender);
+      const receiverId = String(msg.receiver?._id || msg.receiver);
+      const key = `${msg.orderId}_${[senderId, receiverId].sort().join('_')}`;
+
+      if (!seen.has(key)) {
+        seen.add(key);
+        const isMe = senderId === userId;
+        const other = isMe ? msg.receiver : msg.sender;
+        inbox.push({
+          orderId:     msg.orderId,
+          lastMessage: msg.message,
+          lastTime:    msg.createdAt,
+          with: {
+            id:   other?._id  || (isMe ? receiverId : senderId),
+            name: other?.name || 'Unknown',
+            role: other?.role || '',
+          },
+        });
+      }
+    }
+
+    res.json(inbox);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 };

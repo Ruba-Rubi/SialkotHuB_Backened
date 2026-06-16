@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 const Escrow = require("../escrow");
 const User   = require("../Users");
+const Order  = require("../Orders"); // ✅ FIX: Direct import instead of mongoose.model()
 
 // ─── CREATE ESCROW ────────────────────────────────────────────────────────────
 const createEscrow = async (req, res) => {
@@ -40,23 +41,39 @@ const stripeInitiate = async (req, res) => {
       const { amount, title } = req.body;
       if (!amount) return res.status(400).json({ message: "Amount zaroori hai" });
 
-      // Try to get manufacturerId from Order
+      // ✅ FIX: Proper Order import se manufacturerId fetch karo
       let manufacturerId = null;
       try {
-        const Order = require("mongoose").model("Order");
         const order = await Order.findById(req.params.id).select("manufacturerId");
-        if (order) manufacturerId = order.manufacturerId;
-      } catch (_) {}
+        if (order && order.manufacturerId) manufacturerId = order.manufacturerId;
+        console.log("✅ manufacturerId from order:", manufacturerId);
+      } catch (e) {
+        console.log("Order fetch error:", e.message);
+      }
 
       escrow = await Escrow.create({
         orderId:         req.params.id,
         clientId:        req.user._id || req.user.id,
-        manufacturerId,
+        manufacturerId,  // ✅ Ab null nahi hoga
         totalAmount:     amount,
         advanceAmount:   Math.round(amount * 0.3),
         remainingAmount: Math.round(amount * 0.7),
         status:          "pending",
       });
+    }
+
+    // ✅ FIX: Agar escrow already hai aur manufacturerId null hai toh update karo
+    if (!escrow.manufacturerId) {
+      try {
+        const order = await Order.findById(req.params.id).select("manufacturerId");
+        if (order && order.manufacturerId) {
+          escrow.manufacturerId = order.manufacturerId;
+          await escrow.save();
+          console.log("✅ Updated existing escrow manufacturerId:", order.manufacturerId);
+        }
+      } catch (e) {
+        console.log("Could not update manufacturerId:", e.message);
+      }
     }
 
     if (!["pending", "awaiting_payment"].includes(escrow.status)) {
@@ -149,6 +166,20 @@ const releaseAdvance = async (req, res) => {
     if (escrow.status !== "paid")
       return res.status(400).json({ message: `Payment not confirmed yet. Status: ${escrow.status}` });
 
+    // ✅ FIX: Agar manufacturerId null hai toh Order se fetch karo
+    if (!escrow.manufacturerId) {
+      try {
+        const order = await Order.findById(escrow.orderId).select("manufacturerId");
+        if (order && order.manufacturerId) {
+          escrow.manufacturerId = order.manufacturerId;
+          await escrow.save();
+          console.log("✅ Fixed missing manufacturerId from order");
+        }
+      } catch (e) {
+        console.log("Could not fix manufacturerId:", e.message);
+      }
+    }
+
     const manufacturer = await User.findById(escrow.manufacturerId);
     if (!manufacturer) return res.status(404).json({ message: "Manufacturer not found" });
 
@@ -200,6 +231,17 @@ const releaseRemaining = async (req, res) => {
     if (escrow.status === "disputed") return res.status(400).json({ message: "Dispute is active" });
     if (escrow.status !== "approved")
       return res.status(400).json({ message: `Cannot release. Status: ${escrow.status}` });
+
+    // ✅ FIX: Agar manufacturerId null hai toh Order se fetch karo
+    if (!escrow.manufacturerId) {
+      try {
+        const order = await Order.findById(escrow.orderId).select("manufacturerId");
+        if (order && order.manufacturerId) {
+          escrow.manufacturerId = order.manufacturerId;
+          await escrow.save();
+        }
+      } catch (e) {}
+    }
 
     const manufacturer = await User.findById(escrow.manufacturerId);
     if (!manufacturer) return res.status(404).json({ message: "Manufacturer not found" });
