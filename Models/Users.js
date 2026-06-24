@@ -29,6 +29,10 @@ const UserSchema = new mongoose.Schema({
   totalReviews:       { type: Number, default: 0 },
   cnicVerification:   { type: mongoose.Schema.Types.Mixed },
 
+  // Account management
+  accountStatus:    { type: String, enum: ['active', 'blocked', 'suspended'], default: 'active' },
+  rejectionReason:  { type: String, default: '' },
+
   // Policies acceptance
   policiesAccepted:   { type: Boolean, default: false },
 
