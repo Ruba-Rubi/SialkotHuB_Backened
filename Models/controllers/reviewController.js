@@ -1,6 +1,7 @@
 const Review = require("../Reviews");
 const User   = require("../Users");
 const Order  = require("../Orders");
+const Notification = require("../Notification");
 
 const HF_SENTIMENT_MODEL = "cardiffnlp/twitter-xlm-roberta-base-sentiment";
 const HF_INFERENCE_URL   = `https://router.huggingface.co/hf-inference/models/${HF_SENTIMENT_MODEL}`;
@@ -63,7 +64,7 @@ async function fetchMultilingualSentiment(comment, token) {
 }
 
 async function computeScores(r, text) {
-  const hfToken = process.env.HF_API_TOKEN || process.env.HUGGINGFACE_API_KEY;
+  const hfToken = process.env.HF_API_TOKEN || process.env.HUGGINGFACE_API_KEY || process.env.HUGGINGFACE_TOKEN;
   let sentiment0to100 = 50, sentimentLabel = "fallback_rating_only", modelTopScore = null, sentimentSource = "fallback";
   if (hfToken) {
     try {
@@ -136,6 +137,8 @@ exports.addReview = async (req, res) => {
     reviewee.totalReviews = n + 1;
     await reviewee.save();
 
+    await Notification.create({ title: 'New Review', message: `Aapko ${r} star review mila: "${text.substring(0,60)}"`, type: 'review', userId: String(revieweeId) }).catch(() => {});
+
     res.status(201).json({ message: "Review added", sentiment: sentimentLabel, modelTopScore, sentimentScore0to100: sentiment0to100, ratingContribution0to100: rating0to100, combinedScore, sentimentSource, totalReviews: reviewee.totalReviews, newTrustScore: reviewee.trustScore });
   } catch (err) {
     console.error("Review Error:", err);
@@ -162,14 +165,12 @@ exports.addOrderReview = async (req, res) => {
 
     // Determine reviewee based on who is reviewing
     let revieweeId;
-    if (userRole === 'client' && String(order.clientId) === userId) {
-      // Client reviews Manufacturer
+    const role = (userRole || '').toLowerCase();
+    if (role === 'client' && String(order.clientId) === userId) {
       revieweeId = order.manufacturerId;
-    } else if (userRole === 'Manufacturer' && String(order.manufacturerId) === userId) {
-      // Manufacturer reviews Labour
+    } else if (role === 'manufacturer' && String(order.manufacturerId) === userId) {
       revieweeId = order.labourId;
-    } else if (userRole === 'Labour' && String(order.labourId) === userId) {
-      // Labour reviews Manufacturer
+    } else if (role === 'labour' && String(order.labourId) === userId) {
       revieweeId = order.manufacturerId;
     } else {
       return res.status(403).json({ error: "You are not authorized to review this order" });
@@ -200,6 +201,8 @@ exports.addOrderReview = async (req, res) => {
     reviewee.trustScore  = clamp(((Number(reviewee.trustScore) || 0) * n + combinedScore) / (n + 1), 0, 100);
     reviewee.totalReviews = n + 1;
     await reviewee.save();
+
+    await Notification.create({ title: 'New Review', message: `Aapko ${r} star review mila: "${text.substring(0,60)}"`, type: 'review', userId: String(revieweeId), orderId: String(orderId) }).catch(() => {});
 
     res.status(201).json({
       message: "Order review submitted",

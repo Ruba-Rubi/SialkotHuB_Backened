@@ -4,7 +4,7 @@ const UserSchema = new mongoose.Schema({
   name:     { type: String, required: true, trim: true },
   email:    { type: String, required: true, unique: true, lowercase: true },
   password: { type: String, required: true },
-  role:     { type: String, enum: ['client', 'labour', 'manufacturer'], required: true },
+  role:     { type: String, enum: ['client', 'labour', 'manufacturer', 'admin'], required: true },
 
   cnic:  { type: String },
   dob:   { type: String },
@@ -26,6 +26,7 @@ const UserSchema = new mongoose.Schema({
   isVerified:         { type: Boolean, default: false },
   verificationStatus: { type: String, enum: ['PENDING', 'VERIFIED', 'FAKE', 'MANUAL'], default: 'PENDING' },
   trustScore:         { type: Number, default: 0 },
+  totalReviews:       { type: Number, default: 0 },
   cnicVerification:   { type: mongoose.Schema.Types.Mixed },
 
   // Policies acceptance

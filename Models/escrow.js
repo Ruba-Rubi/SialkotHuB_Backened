@@ -22,7 +22,8 @@ const escrowSchema = new mongoose.Schema({
   stripeSessionId: { type: String, default: null },
   advanceReleased: { type: Boolean, default: false },
   remainingReleased: { type: Boolean, default: false },
-  clientApproved: { type: Boolean, default: false }
+  clientApproved: { type: Boolean, default: false },
+  delivered: { type: Boolean, default: false }
 }, { timestamps: true });
 
 module.exports = mongoose.models.Escrow || mongoose.model("Escrow", escrowSchema);

@@ -3,7 +3,7 @@ const router  = express.Router();
 const auth    = require("../middleware/auth");
 const {
   createEscrow, stripeInitiate, verifyStripeSession, stripeWebhook, safepayReturn,
-  releaseAdvance, clientApproval, releaseRemaining,
+  releaseAdvance, clientApproval, releaseRemaining, markDelivered,
   raiseDispute, getEscrowByOrder, markPaidForTesting,
 } = require("../controllers/Escrowcontroller");
 
@@ -21,6 +21,7 @@ router.post("/test-mark-paid/:id",   auth, markPaidForTesting);
 router.get("/order/:orderId",        auth, getEscrowByOrder);
 router.put("/release/advance/:id",   auth, releaseAdvance);
 router.put("/client-approval/:id",   auth, clientApproval);
+router.put("/mark-delivered/:id",    auth, markDelivered);
 router.put("/release/remaining/:id", auth, releaseRemaining);
 router.put("/dispute/:id",           auth, raiseDispute);
 

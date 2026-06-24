@@ -15,6 +15,7 @@ const messageRoutes = require('./Models/routes/messageroutes');
 const reviewRoutes  = require('./Models/routes/reviewRoutes');
 const disputeRoutes = require('./Models/routes/disputeRoutes');
 const orderRoutes   = require('./Models/routes/orderRoutes');
+const adminRoutes   = require('./Models/routes/adminRoutes');
 
 const app    = express();
 const server = http.createServer(app);
@@ -31,6 +32,7 @@ const ALLOWED_ORIGINS = [
 app.use(cors({ origin: ALLOWED_ORIGINS, credentials: true }));
 app.use(express.json({ limit: '25mb' }));
 app.use(express.urlencoded({ extended: true, limit: '25mb' }));
+app.use('/uploads', require('express').static(require('path').join(__dirname, 'uploads')));
 
 const io = new Server(server, {
   cors: { origin: ALLOWED_ORIGINS, methods: ['GET', 'POST'], credentials: true },
@@ -46,6 +48,7 @@ app.use('/api/messages', messageRoutes);
 app.use('/api/reviews',  reviewRoutes);
 app.use('/api/dispute',  disputeRoutes);
 app.use('/api/orders',   orderRoutes);
+app.use('/api/admin',    adminRoutes);
 
 app.get('/', (req, res) => res.send('Skillora Backend Running...'));
 

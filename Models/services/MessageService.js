@@ -2,6 +2,7 @@ const axios = require('axios');
 const Message = require('../Message');
 const User = require('../Users');
 const Dispute = require('../dispute');
+const Notification = require('../Notification');
 
 const BERT_URL = process.env.BERT_SERVICE_URL || 'http://127.0.0.1:5000';
 const WARNING_THRESHOLD = parseInt(process.env.CHAT_WARNING_THRESHOLD || '3', 10);
@@ -129,7 +130,20 @@ async function processMessage({ sender, receiver, orderId, message }) {
       dispute.warningCount += 1;
       dispute.aiStatus = 'DISPUTE';
       dispute.aiConfidence = confidence;
-      if (dispute.warningCount >= WARNING_THRESHOLD) dispute.adminNotified = true;
+      if (dispute.warningCount >= WARNING_THRESHOLD && !dispute.adminNotified) {
+        dispute.adminNotified = true;
+        // Real admin notification
+        const admins = await User.find({ role: 'admin' }).select('_id');
+        await Promise.all(admins.map(admin =>
+          Notification.create({
+            title: 'Dispute Alert',
+            message: `Order ${orderId} mein ${dispute.warningCount} dispute messages detect hue. Review required.`,
+            type: 'system',
+            userId: String(admin._id),
+            orderId: String(orderId),
+          })
+        ));
+      }
       await dispute.save();
     }
     disputeResult = {

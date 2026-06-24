@@ -201,7 +201,36 @@ const releaseAdvance = async (req, res) => {
   }
 };
 
-// ─── CLIENT APPROVAL ─────────────────────────────────────────────────────────
+// ─── MANUFACTURER MARKS WORK COMPLETE ────────────────────────────────────────
+const markDelivered = async (req, res) => {
+  try {
+    const escrow = await Escrow.findById(req.params.id);
+    if (!escrow) return res.status(404).json({ message: "Escrow not found" });
+    if (escrow.delivered) return res.status(400).json({ message: "Already marked as delivered" });
+    if (!escrow.advanceReleased) return res.status(400).json({ message: "Advance not released yet" });
+
+    escrow.delivered = true;
+    await escrow.save();
+
+    const Notification = require('../Notification');
+    const order = await Order.findById(escrow.orderId).select('title clientId').lean();
+    if (order?.clientId) {
+      await Notification.create({
+        title: 'Kaam Complete',
+        message: `Manufacturer na "${order.title}" ka kaam complete ker diya. Please review karein aur payment release karein.`,
+        type: 'order_completed',
+        userId: String(order.clientId),
+        orderId: String(escrow.orderId)
+      }).catch(() => {});
+    }
+
+    res.json({ message: "✅ Delivered marked. Client ko notification bhej di.", escrow });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+
 const clientApproval = async (req, res) => {
   try {
     const escrow = await Escrow.findById(req.params.id);
@@ -214,6 +243,12 @@ const clientApproval = async (req, res) => {
     escrow.clientApproved = true;
     escrow.status         = "approved";
     await escrow.save();
+
+    if (escrow.manufacturerId) {
+      const Notification = require('../Notification');
+      const order = await Order.findById(escrow.orderId).select('title').lean();
+      await Notification.create({ title: 'Delivery Approved', message: `Client na "${order?.title || 'Order'}" ki delivery approve ker di. Ab 70% payment release hogi.`, type: 'system', userId: String(escrow.manufacturerId), orderId: String(escrow.orderId) }).catch(() => {});
+    }
 
     res.json({ message: "✅ Delivery approved by client. Release 70% now.", escrow });
   } catch (error) {
@@ -254,6 +289,10 @@ const releaseRemaining = async (req, res) => {
     escrow.status            = "released";
     await escrow.save();
 
+    const Notification = require('../Notification');
+    const order = await Order.findById(escrow.orderId).select('title').lean();
+    await Notification.create({ title: 'Payment Released', message: `"${order?.title || 'Order'}" ka 70% payment (Rs ${escrow.remainingAmount}) aapke wallet mein aa gaya. Order complete!`, type: 'system', userId: String(manufacturer._id), orderId: String(escrow.orderId) }).catch(() => {});
+
     res.json({
       message:             `✅ Order complete! 70% (Rs ${escrow.remainingAmount}) released to manufacturer.`,
       manufacturerBalance: manufacturer.wallet.balance,
@@ -268,16 +307,18 @@ const releaseRemaining = async (req, res) => {
 // ─── RAISE DISPUTE ────────────────────────────────────────────────────────────
 const raiseDispute = async (req, res) => {
   try {
-    const escrow = await Escrow.findById(req.params.id);
-    if (!escrow)                       return res.status(404).json({ message: "Escrow not found" });
-    if (escrow.status === "released")  return res.status(400).json({ message: "Cannot dispute completed order" });
-    if (escrow.status === "disputed")  return res.status(400).json({ message: "Dispute already active" });
-    if (escrow.status === "pending")   return res.status(400).json({ message: "Payment not made yet" });
+    const escrow = await Escrow.findOne({ orderId: req.params.id }) || await Escrow.findById(req.params.id);
 
-    escrow.status = "disputed";
-    await escrow.save();
+    if (escrow) {
+      if (escrow.status === "released") return res.status(400).json({ message: "Cannot dispute completed order" });
+      if (escrow.status === "disputed") return res.status(400).json({ message: "Dispute already active" });
+      escrow.status = "disputed";
+      await escrow.save();
+      return res.json({ message: "⚠️ Dispute raised. Funds are on hold.", escrow });
+    }
 
-    res.json({ message: "⚠️ Dispute raised. Funds are on hold.", escrow });
+    // No escrow yet — still allow dispute to be raised
+    res.json({ message: "Dispute raised. No escrow found for this order.", escrow: null });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -319,6 +360,6 @@ const getEscrowByOrder = async (req, res) => {
 // ─── EXPORTS ──────────────────────────────────────────────────────────────────
 module.exports = {
   createEscrow, stripeInitiate, verifyStripeSession, stripeWebhook, safepayReturn,
-  releaseAdvance, clientApproval, releaseRemaining,
+  releaseAdvance, clientApproval, releaseRemaining, markDelivered,
   raiseDispute, getEscrowByOrder, markPaidForTesting,
 };

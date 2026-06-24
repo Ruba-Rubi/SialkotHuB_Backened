@@ -13,6 +13,7 @@ const OrderSchema = new mongoose.Schema({
   labourId:       { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   targetRole:     { type: String, enum: ['Manufacturer', 'Labour'], default: 'Manufacturer' },
   status:         { type: String, enum: ['pending', 'in-progress', 'completed', 'cancelled', 'disputed'], default: 'pending' },
+  applicants:     [{ labourId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, status: { type: String, default: 'pending' } }],
 }, { timestamps: true });
 
 module.exports = mongoose.model('Order', OrderSchema);

@@ -334,7 +334,20 @@ exports.loginUser = async (req, res) => {
 
 
 // ======================================================
-// 3. GET USERS
+// 3. GET USER BY ID
+// ======================================================
+exports.getUserById = async (req, res) => {
+    try {
+        const user = await User.findById(req.params.id, 'name role trustScore totalReviews isVerified address skills companyName createdAt');
+        if (!user) return res.status(404).json({ message: 'User not found' });
+        res.json(user);
+    } catch (err) {
+        res.status(500).json({ message: 'Server Error' });
+    }
+};
+
+// ======================================================
+// 4. GET USERS
 // ======================================================
 exports.getUsers = async (req, res) => {
 

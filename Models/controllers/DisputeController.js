@@ -1,5 +1,8 @@
 const Dispute = require('../dispute');
 const Escrow = require('../escrow');
+const Order = require('../Orders');
+const User = require('../Users');
+const Notification = require('../Notification');
 const axios = require('axios');
 
 const BERT_API = 'http://localhost:5000/predict-dispute';
@@ -22,6 +25,18 @@ exports.createDispute = async (req, res) => {
 
     await Escrow.findOneAndUpdate({ orderId }, { status: 'disputed' });
 
+    // Notify all admins
+    const admins = await User.find({ role: 'admin' }).select('_id');
+    await Promise.all(admins.map(admin =>
+      Notification.create({
+        title: 'New Dispute Filed',
+        message: `Order ${orderId} par dispute raise hua: "${reason.substring(0, 100)}"`,
+        type: 'system',
+        userId: String(admin._id),
+        orderId: String(orderId),
+      })
+    ));
+
     res.json({ message: 'Dispute created & escrow on hold', dispute, aiStatus, aiConfidence });
   } catch (error) {
     res.status(500).json({ message: 'Dispute create nahi hua', error: error.message });
@@ -42,6 +57,22 @@ exports.resolveDispute = async (req, res) => {
     if (escrow) {
       escrow.status = decision === 'release' ? 'released' : 'pending';
       await escrow.save();
+    }
+
+    // Notify client & manufacturer
+    const order = await Order.findById(dispute.orderId).select('clientId manufacturerId title');
+    if (order) {
+      const decisionText = decision === 'release' ? 'manufacturer ke haq mein' : 'client ke haq mein';
+      const recipients = [order.clientId, order.manufacturerId].filter(Boolean);
+      await Promise.all(recipients.map(userId =>
+        Notification.create({
+          title: 'Dispute Resolve Ho Gaya',
+          message: `Order "${order.title}" ka dispute admin ne ${decisionText} resolve kar diya.`,
+          type: 'system',
+          userId: String(userId),
+          orderId: String(dispute.orderId),
+        })
+      ));
     }
 
     res.json({ message: 'Dispute resolved', dispute });
